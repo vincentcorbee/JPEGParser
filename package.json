@@ -1,0 +1,28 @@
+{
+  "name": "jpegparser",
+  "version": "1.0.0",
+  "description": "JPEG parser for js",
+  "main": "src/JPEGParser.js",
+  "scripts": {
+    "start": "parcel index.html"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vincentcorbee/JPEGParser.git"
+  },
+  "keywords": [
+    "JPEG",
+    "parser",
+    "for",
+    "javascript"
+  ],
+  "author": "V.J.M. Corbee",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/vincentcorbee/JPEGParser/issues"
+  },
+  "homepage": "https://github.com/vincentcorbee/JPEGParser#readme",
+  "devDependencies": {
+    "parcel": "^2.0.0-beta.2"
+  }
+}
