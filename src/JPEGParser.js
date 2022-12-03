@@ -377,6 +377,18 @@ const isXmp = binaryReader => {
   return false
 }
 
+const isICCProfile = binaryReader => {
+  let exif = binaryReader.getString(12)
+
+  if (exif === 'ICC_PROFILE\0') {
+    return true
+  }
+
+  binaryReader.seek(binaryReader.tell() - 12)
+
+  return false
+}
+
 const isExif = binaryReader => {
   let exif = binaryReader.getString(6)
 
@@ -396,21 +408,6 @@ const getExif = arrayBuffer => {
     header: {},
     IFDs: [],
     thumbnail: undefined,
-    // get thumbnail() {
-    //   const IFD1 = this.IFDs[1]
-
-    //   if (IFD1) {
-    //     const [offset, length] = exif.IFDs[1].entries.filter(
-    //       entry =>
-    //         entry.fieldName === 'JPEGInterchangeFormat' ||
-    //         entry.fieldName === 'JPEGInterchangeFormatLength'
-    //     )
-
-    //     // binaryReader.seek(startOffset + offset.value)
-
-    //     return [offset.value, length.value]
-    //   }
-    // },
   }
 
   // Tiff header
@@ -474,6 +471,43 @@ const getDataDataSet = (recordNumber, dataSetNumber, br, length) => {
   return br.getString(length)
 }
 
+const PROFILE_CLASSES = {
+  0x73636e72: 'scnr',
+  0x6d6e7472: 'mntr',
+  0x70727472: 'prtr',
+  0x6c696e6b: 'link',
+  0x73706163: 'spac',
+  0x61627374: 'abst',
+  0x6e6d636c: 'nmc',
+}
+
+const DATA_COLOR_SPACE_SIGNATURES = {
+  0x58595a20: 'XYZ',
+  0x4c616220: 'Lab',
+  0x4c757620: 'Luv',
+  0x59436272: 'YCbr',
+  0x59787920: 'Yxy',
+  0x52474220: 'RGB',
+}
+
+const DATA_COLOR_SPACE_SIGNATURES_TYPES = {
+  XYZ: {
+    PCS: 'PCSXYZ',
+    nCIE: 'nCIEXYZ',
+  },
+  Lab: {
+    PCS: 'PCSLAB',
+    nCIE: 'CIELAB',
+  },
+}
+
+const PRIMARY_PLATFORMS = {
+  0x4150504c: 'APPL',
+  0x4d534654: 'MSFT',
+  0x53474920: 'SGI',
+  0x53554e57: 'SUNW',
+}
+
 export const JPEGParser = arrayBuffer => {
   const binaryReader = new BinaryReader(arrayBuffer)
   let marker
@@ -532,12 +566,6 @@ export const JPEGParser = arrayBuffer => {
           const [Ah, Al] = binaryReader.getUint4()
 
           segment.push(Ss, Se, Ah, Al)
-
-          // console.log(
-          //   '------',
-          //   binaryReader.peak(),
-          //   binaryReader.peakAt(binaryReader.tell() + 1)
-          // )
         } else if (isAPPMarker(marker)) {
           const Lp = binaryReader.getUint16()
 
@@ -588,15 +616,6 @@ export const JPEGParser = arrayBuffer => {
 
               segment.push(exif)
 
-              // Thumb
-              // const [offset, length] = exif.thumbnail
-
-              // binaryReader.seek(binaryReader.tell() + offset)
-
-              // JPEGParser(binaryReader.slice(length))
-
-              //
-
               // Jump over exif data
               binaryReader.seek(startPos + Lp - 2)
             } else if (isXmp(binaryReader)) {
@@ -608,6 +627,125 @@ export const JPEGParser = arrayBuffer => {
               })
             }
           } else {
+            if (MARKER_CODES.APP[2] === marker) {
+              if (isICCProfile(binaryReader)) {
+                const br = new BinaryReader(binaryReader.slice(Lp - 2))
+
+                const sequenceNumber = br.getUint8()
+                const numberOfChunks = br.getUint8()
+
+                // Header 128 bytes long
+                const profileSize = br.getUint32()
+                const preferredCMMType = br.getString(4)
+                const profileVersionNumber = `${br.getUint8()}.${br.getUint4().join('.')}`
+
+                br.seek(br.tell() + 2)
+
+                const profileDeviceClass = PROFILE_CLASSES[br.getUint32()]
+                const colorSpaceOfData = DATA_COLOR_SPACE_SIGNATURES[br.getUint32()]
+                const pcs =
+                  DATA_COLOR_SPACE_SIGNATURES_TYPES[
+                    DATA_COLOR_SPACE_SIGNATURES[br.getUint32()]
+                  ].PCS
+                const dateAndTime = new Date(
+                  Date.UTC(
+                    br.getUint16(),
+                    br.getUint16(),
+                    br.getUint16(),
+                    br.getUint16(),
+                    br.getUint16(),
+                    br.getUint16()
+                  )
+                )
+                const profileFileSignature = br.getString(4)
+                const primaryPlatform = PRIMARY_PLATFORMS[br.getUint32()]
+
+                const profileFlagsData = br.getUint32()
+                const profileFlags = [profileFlagsData & 1, (profileFlagsData >>> 1) & 1]
+                const deviceManufacturer = br.getString(4)
+                const deviceModel = br.getUint32()
+
+                br.getUint32()
+
+                const deviceAttributeData = br.getUint32()
+                const deviceAttribute = [
+                  deviceAttributeData & 1,
+                  (deviceAttributeData >>> 1) & 1,
+                  (deviceAttributeData >>> 2) & 1,
+                  (deviceAttributeData >>> 3) & 1,
+                ]
+                const renderingIntent = br.getUint32()
+                const PCSIlluminant = [
+                  br.getS15Fixed16Number(),
+                  br.getS15Fixed16Number(),
+                  br.getS15Fixed16Number(),
+                ]
+                const profileCreator = br.getUint32()
+                const profileId = br.slice(16)
+
+                br.seek(br.tell() + 16)
+
+                // reserved field
+                br.seek(br.tell() + 28)
+
+                const header = {
+                  profileSize,
+                  preferredCMMType,
+                  profileVersionNumber,
+                  profileDeviceClass,
+                  colorSpaceOfData,
+                  pcs,
+                  dateAndTime,
+                  profileFileSignature,
+                  primaryPlatform,
+                  profileFlags,
+                  deviceManufacturer,
+                  deviceModel,
+                  deviceAttribute,
+                  renderingIntent,
+                  PCSIlluminant,
+                  profileCreator,
+                  profileId,
+                }
+
+                // Tag table
+                let tagCount = br.getUint32()
+                const tagTable = {
+                  tagCount,
+                  tags: [],
+                }
+
+                while (tagCount > 0) {
+                  const tagSignature = br.getString(4)
+                  const tagOffset = br.getUint32()
+                  const tagSize = br.getUint32()
+                  const lastOffset = br.tell()
+
+                  br.seek(tagOffset)
+
+                  br.skipEmpty()
+
+                  const tagData = br.getString(4)
+
+                  console.log(tagSignature, tagOffset, tagSize, lastOffset)
+
+                  tagTable.tags.push({ [tagSignature]: tagData })
+
+                  br.seek(lastOffset)
+
+                  tagCount--
+                }
+
+                console.log(
+                  'ICC_PROFILE',
+                  sequenceNumber,
+                  numberOfChunks,
+                  header,
+                  tagTable
+                )
+              }
+            }
+
             if (MARKER_CODES.APP[13] === marker) {
               const br = new BinaryReader(binaryReader.slice(Lp - 2))
               const identifier = br.getString(14)

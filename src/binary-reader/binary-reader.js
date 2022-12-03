@@ -44,13 +44,14 @@ class BinaryReader {
   }
 
   skipEmpty() {
+    // This does not work I think
     while (this.peak() === 0 && this.getUint8()) {
       this.pos++
     }
   }
 
   slice(end) {
-    console.log(end, this.pos + end, this.view.buffer.byteLength - 1)
+    // console.log(end, this.pos + end, this.view.buffer.byteLength - 1)
     return this.view.buffer.slice(
       this.pos,
       end ? this.pos + end : this.view.buffer.byteLength - 1
@@ -114,6 +115,24 @@ class BinaryReader {
     }
 
     return result
+  }
+
+  getInt32() {
+    let result = this.getUint32()
+
+    if (result & 0x80000000) {
+      result -= 1 << 32
+    }
+
+    return result
+  }
+
+  getS15Fixed16Number() {
+    const int32 = this.getInt32()
+
+    console.log(int32.toString(2))
+
+    return `${(int32 >> 16).toString()}.${(int32 & 0xffff).toString()}`
   }
 
   getString(length, encoding) {

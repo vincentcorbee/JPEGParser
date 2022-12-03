@@ -9,7 +9,9 @@ fileInput.addEventListener('change', e => {
   fr.addEventListener('loadend', () => {
     console.log(fr.result)
 
-    console.log(JPEGParser(fr.result))
+    const jpegData = JPEGParser(fr.result)
+
+    console.log(jpegData)
   })
 
   fr.readAsArrayBuffer(file)
