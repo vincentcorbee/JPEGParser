@@ -1,4 +1,4 @@
-import { JPEGParser } from './src/JPEGParser'
+import { JPEGParser, JPEG } from './src/JPEGParser'
 
 const fileInput = document.getElementById('file')
 
@@ -9,9 +9,9 @@ fileInput.addEventListener('change', e => {
   fr.addEventListener('loadend', () => {
     console.log(fr.result)
 
-    const jpegData = JPEGParser(fr.result)
+    const jpeg = new JPEG(fr.result)
 
-    console.log(jpegData)
+    console.log(jpeg)
   })
 
   fr.readAsArrayBuffer(file)

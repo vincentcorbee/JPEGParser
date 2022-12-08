@@ -51,9 +51,9 @@ class BinaryReader {
   }
 
   slice(end) {
-    // console.log(end, this.pos + end, this.view.buffer.byteLength - 1)
     return this.view.buffer.slice(
       this.pos,
+
       end ? this.pos + end : this.view.buffer.byteLength - 1
     )
   }
@@ -110,9 +110,7 @@ class BinaryReader {
   getInt16() {
     let result = this.getUint16()
 
-    if (result & 0x8000) {
-      result -= 1 << 16
-    }
+    if (result & 0x8000) result -= 1 << 16
 
     return result
   }
@@ -120,17 +118,13 @@ class BinaryReader {
   getInt32() {
     let result = this.getUint32()
 
-    if (result & 0x80000000) {
-      result -= 1 << 32
-    }
+    if (result & 0x80000000) result -= 1 << 32
 
     return result
   }
 
   getS15Fixed16Number() {
     const int32 = this.getInt32()
-
-    console.log(int32.toString(2))
 
     return `${(int32 >> 16).toString()}.${(int32 & 0xffff).toString()}`
   }
@@ -139,6 +133,7 @@ class BinaryReader {
     if (encoding) {
       const decoder = new TextDecoder(encoding)
       const arr = []
+
       for (let i = 0; i < length; i++) {
         arr.push(this.getUint8())
       }

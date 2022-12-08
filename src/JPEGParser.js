@@ -1,21 +1,5 @@
 import BinaryReader from './binary-reader/binary-reader'
 
-// if (module.hot) {
-//   module.hot.accept()
-// }
-
-const isFrameHeader = seg => {
-  const FRAME_HEADERS = ['SOF0', 'SOF2']
-
-  return FRAME_HEADERS.includes(seg)
-}
-
-const isScanHeader = seg => {
-  const SCAN_HEADER = 'SOS'
-
-  return seg === SCAN_HEADER
-}
-
 const RST_MARKER_CODES = {
   0: 0xd0,
   1: 0xd1,
@@ -79,48 +63,42 @@ const MARKER_NAMES = {
   0xd9: 'EOI', // End Of Image
 }
 
-const isAPPMarker = code => code >= 0xe0 && code <= 0xef
-const isRSTMarker = code => code >= 0xd0 && code <= 0xd7
-
-const getMarkerName = code => {
-  let name
-
-  if (isAPPMarker(code)) {
-    name = `${MARKER_NAMES[MARKER_CODES.APP[0]]}${MARKER_CODES.APP[0] ^ code}`
-  } else if (isRSTMarker(code)) {
-    name = `${MARKER_NAMES[MARKER_CODES.RST[0]]}${MARKER_CODES.RST[0] ^ code}`
-  } else {
-    name = MARKER_NAMES[code]
-  }
-
-  // if (name === undefined) {
-  //   throw new Error(`Marker name not found for: ${code}`)
-  // }
-
-  return name
+const PROFILE_CLASSES = {
+  0x73636e72: 'scnr',
+  0x6d6e7472: 'mntr',
+  0x70727472: 'prtr',
+  0x6c696e6b: 'link',
+  0x73706163: 'spac',
+  0x61627374: 'abst',
+  0x6e6d636c: 'nmc',
 }
 
-const isMarkerSegment = name => {
-  const MARKER_SEGMENTS = ['SOF', 'DHT', 'DQT', 'DRI', 'SOS', 'APP', 'COM', 'DNL', 'JPG']
-
-  /**
-   * SOFn - [ Lf, P, Y, X, Nf, Component-specification parameters ]
-   *
-   * Component-specification parameters - [ Ci, Hi, Vi, Tqi]
-   *
-   * SOS - [ Ls, Ns, Component-specification parameters, Ss, Se, Ah, Al ]
-   *
-   * Component-specification parameters - [ Cs, Td, Ta ]
-   *
-   */
-
-  return !!MARKER_SEGMENTS.find(marker => name.startsWith(marker))
+const DATA_COLOR_SPACE_SIGNATURES = {
+  0x58595a20: 'XYZ',
+  0x4c616220: 'Lab',
+  0x4c757620: 'Luv',
+  0x59436272: 'YCbr',
+  0x59787920: 'Yxy',
+  0x52474220: 'RGB',
 }
 
-const isMarker = code => !!MARKER_NAMES[code]
+const DATA_COLOR_SPACE_SIGNATURES_TYPES = {
+  XYZ: {
+    PCS: 'PCSXYZ',
+    nCIE: 'nCIEXYZ',
+  },
+  Lab: {
+    PCS: 'PCSLAB',
+    nCIE: 'CIELAB',
+  },
+}
 
-const isStartOfMarker = (a, b) =>
-  a === 0xff && b !== 0xff && b !== 0x0 && getMarkerName(b) !== undefined
+const PRIMARY_PLATFORMS = {
+  0x4150504c: 'APPL',
+  0x4d534654: 'MSFT',
+  0x53474920: 'SGI',
+  0x53554e57: 'SUNW',
+}
 
 const FIELD_TYPES = {
   BYTE: 1,
@@ -132,6 +110,7 @@ const FIELD_TYPES = {
 }
 
 const FIELDS = {
+  UNKNOWN: 'Unknown',
   IMAGE_DESCRIPTION: 'ImageDescription',
   MAKE: 'Make',
   MODEL: 'Model',
@@ -181,7 +160,40 @@ const FIELDS = {
   GPS_LONGITUDE: 'GPSLongitude',
   GPS_ALTITUDE_REF: 'GPSAltitudeRef',
   GPS_ALTITUDE: 'GPSAltitude',
+  IMAGE_WIDTH: 'ImageWidth',
+  IMAGE_LENGTH: 'ImageHeight',
+  BITS_PER_SAMPLING: 'BitsPerSampling',
+  EXIF_IMAGE_WIDTH: 'ExifImageWidth',
+  EXIF_IMAGE_HEIGHT: 'ExifImageHeight',
+  PHOTOMETRIC_INTERPRETATION: 'PhotometricInterpretation',
+  ORIENTATION: "Orientation",
+  SAMPLESPERPIXEL: 'SamplesPerPixel',
+  PLANARCONFIGURATION: "PlanarConfiguration",
+  PANASONIC_TITLE: "PanasonicTitle",
+  PANASONIC_TITLE_2: "PanasonicTitle2",
+  INTEROPERABILITY_IFD_POINTER: "Interoperability IFD Pointer",
+  EXPOSURE_BIAS_VALUE: "ExposureBiasValue",
+  F_NUMBER: "FNumber",
+  PRINT_IM:"PrintIM",
+  MAX_APERTURE_VALUE: "MaxApertureValue",
+  COMPRESSED_BITS_PER_PIXEL: "CompressedBitsPerPixel",
+  SENSING_METHOD: "SensingMethod",
+  FILE_SOURCE: "FileSource",
+  SCENE_TYPE: "SceneType",
+  CUSTOM_RENDERED: "CustomRendered",
+  IMAGE_UNIQUE_ID: "ImageUniqueID",
+  DIGITAL_ZOOM_RATIO: "DigitalZoomRatio",
+  FOCAL_LENGTH_IN_35MM_FILM: "FocalLengthIn35mmFilm",
+  SHUTTER_SPEED_VALUE: "ShutterSpeedValue"
 }
+
+const TIFF_FIELDS_NOT_ALLOWED_IN_JPEG = [
+  FIELDS.IMAGE_WIDTH,
+  FIELDS.IMAGE_LENGTH,
+  FIELDS.BITS_PER_SAMPLING,
+  FIELDS.PHOTOMETRIC_INTERPRETATION,
+  FIELDS.COMPRESSION
+]
 
 const TAG_TO_FIELD = {
   0: FIELDS.GPS_VERSION_ID,
@@ -191,12 +203,19 @@ const TAG_TO_FIELD = {
   4: FIELDS.GPS_LONGITUDE,
   5: FIELDS.GPS_ALTITUDE_REF,
   6: FIELDS.GPS_ALTITUDE,
+  256: FIELDS.IMAGE_WIDTH,
+  257: FIELDS.IMAGE_LENGTH,
+  258: FIELDS.BITS_PER_SAMPLING,
   259: FIELDS.COMPRESSION,
+  262: FIELDS.PHOTOMETRIC_INTERPRETATION,
   270: FIELDS.IMAGE_DESCRIPTION,
   271: FIELDS.MAKE,
   272: FIELDS.MODEL,
+  274: FIELDS.ORIENTATION,
+  277: FIELDS.SAMPLESPERPIXEL,
   282: FIELDS.X_RESOLUTION,
   283: FIELDS.Y_RESOLUTION,
+  284: FIELDS.PLANARCONFIGURATION,
   296: FIELDS.RESOLUTION_UNIT,
   305: FIELDS.SOFTWARE,
   306: FIELDS.DATE_TIME,
@@ -204,35 +223,53 @@ const TAG_TO_FIELD = {
   513: FIELDS.JPEG_INTERCHANGE_FORMAT,
   514: FIELDS.JPEG_INTERCHANGE_FORMAT_LENGTH,
   531: FIELDS.YCB_CR_POSITIONING,
-  42036: FIELDS.LENS_MODEL,
-  42033: FIELDS.BODY_SERIAL_NUMBER,
+  33432: FIELDS.COPYRIGHT,
+  33434: FIELDS.EXPOSURE_TIME,
+  33437: FIELDS.F_NUMBER,
+  34665: FIELDS.EXIF_IFD_POINTER,
+  34850: FIELDS.EXPOSURE_PROGRAM,
+  34852: FIELDS.SPECTRAL_SENSITIVITY,
+  34853: FIELDS.GPS_INFO_IFD_POINTER,
+  34855: FIELDS.ISO_SPEED_RATINGS,
+  36864: FIELDS.EXIF_VERSION,
+  36867: FIELDS.DATE_TIME_ORIGINAL,
+  36868: FIELDS.DATE_TIME_DIGITIZED,
+  37121: FIELDS.COMPONENTS_CONFIGURATION,
+  37122: FIELDS.COMPRESSED_BITS_PER_PIXEL,
+  37377: FIELDS.SHUTTER_SPEED_VALUE,
+  37378: FIELDS.APERTURE_VALUE,
+  37380: FIELDS.EXPOSURE_BIAS_VALUE,
+  37381: FIELDS.MAX_APERTURE_VALUE,
+  37382: FIELDS.SUBJECT_DISTANCE,
+  37383: FIELDS.METERING_MODE,
+  37384: FIELDS.LIGHT_SOURCE,
+  37385: FIELDS.FLASH,
+  37386: FIELDS.FOCAL_LENGTH,
   40960: FIELDS.FLASHPIX_VERSION,
   40961: FIELDS.COLOR_SPACE,
+  40962: FIELDS.EXIF_IMAGE_WIDTH,
+  40963: FIELDS.EXIF_IMAGE_HEIGHT,
+  40965: FIELDS.INTEROPERABILITY_IFD_POINTER,
+  41495: FIELDS.SENSING_METHOD,
+  41728: FIELDS.FILE_SOURCE,
+  41729: FIELDS.SCENE_TYPE,
+  41985: FIELDS.CUSTOM_RENDERED,
   41986: FIELDS.EXPOSURE_MODE,
   41987: FIELDS.WHITE_BALACE,
+  41988: FIELDS.DIGITAL_ZOOM_RATIO,
+  41989: FIELDS.FOCAL_LENGTH_IN_35MM_FILM,
   41990: FIELDS.SCENE_CAPTURE_TYPE,
   41991: FIELDS.GAIN_CONTROL,
   41992: FIELDS.CONTRAST,
   41993: FIELDS.SATURATION,
   41994: FIELDS.SHARPNESS,
   41996: FIELDS.SUBJECT_DISTANCE_RANGE,
-  33432: FIELDS.COPYRIGHT,
-  34665: FIELDS.EXIF_IFD_POINTER,
-  34853: FIELDS.GPS_INFO_IFD_POINTER,
-  36864: FIELDS.EXIF_VERSION,
-  33434: FIELDS.EXPOSURE_TIME,
-  34850: FIELDS.EXPOSURE_PROGRAM,
-  34855: FIELDS.ISO_SPEED_RATINGS,
-  34852: FIELDS.SPECTRAL_SENSITIVITY,
-  36867: FIELDS.DATE_TIME_ORIGINAL,
-  36868: FIELDS.DATE_TIME_DIGITIZED,
-  37121: FIELDS.COMPONENTS_CONFIGURATION,
-  37378: FIELDS.APERTURE_VALUE,
-  37382: FIELDS.SUBJECT_DISTANCE,
-  37383: FIELDS.METERING_MODE,
-  37384: FIELDS.LIGHT_SOURCE,
-  37385: FIELDS.FLASH,
-  37386: FIELDS.FOCAL_LENGTH,
+  42016: FIELDS.IMAGE_UNIQUE_ID,
+  42033: FIELDS.BODY_SERIAL_NUMBER,
+  42036: FIELDS.LENS_MODEL,
+  50898: FIELDS.PANASONIC_TITLE,
+  50899: FIELDS.PANASONIC_TITLE_2,
+  50341: FIELDS.PRINT_IM
 }
 
 const DATA_SETS = {
@@ -268,29 +305,92 @@ const DATA_SETS = {
   },
 }
 
+const isStartOfFrameHeader = seg => {
+  const START_OF_FRAME_HEADERS = ['SOF0', 'SOF2']
+
+  return START_OF_FRAME_HEADERS.includes(seg)
+}
+
+const isScanHeader = seg => {
+  const SCAN_HEADER = 'SOS'
+
+  return seg === SCAN_HEADER
+}
+
+const isAPPMarker = code => code >= 0xe0 && code <= 0xef
+const isRSTMarker = code => code >= 0xd0 && code <= 0xd7
+
+const getMarkerName = code => {
+  let name
+
+  if (isAPPMarker(code)) {
+    name = `${MARKER_NAMES[MARKER_CODES.APP[0]]}${MARKER_CODES.APP[0] ^ code}`
+  } else if (isRSTMarker(code)) {
+    name = `${MARKER_NAMES[MARKER_CODES.RST[0]]}${MARKER_CODES.RST[0] ^ code}`
+  } else {
+    name = MARKER_NAMES[code]
+  }
+
+  // if (name === undefined) {
+  //   throw new Error(`Marker name not found for: ${code}`)
+  // }
+
+  return name
+}
+
+const isMarkerSegment = name => {
+  const MARKER_SEGMENTS = ['SOF', 'DHT', 'DQT', 'DRI', 'SOS', 'APP', 'COM', 'DNL', 'JPG']
+
+  /**
+   * SOFn - [ Lf, P, Y, X, Nf, Component-specification parameters ]
+   *
+   * Component-specification parameters - [ Ci, Hi, Vi, Tqi]
+   *
+   * SOS - [ Ls, Ns, Component-specification parameters, Ss, Se, Ah, Al ]
+   *
+   * Component-specification parameters - [ Cs, Td, Ta ]
+   *
+   */
+
+  return !!MARKER_SEGMENTS.find(marker => name.startsWith(marker))
+}
+
+const isMarker = code => !!MARKER_NAMES[code]
+
+const isStartOfMarker = (a, b) =>
+  a === 0xff && b !== 0xff && b !== 0x0 && getMarkerName(b) !== undefined
+
 const getValue = (binaryReader, IFDEntry, startOffset) => {
   const { valueOffset, fieldType, count } = IFDEntry
 
+  const oldPos = binaryReader.tell()
+
   switch (fieldType) {
+    // Value is stored from offset
     case FIELD_TYPES.ASCII:
-      // Value is stored from offset
-      if (count > 4) {
-        binaryReader.seek(startOffset + valueOffset)
+      const offset = count > 4 ? startOffset + valueOffset : oldPos - 4
 
-        return binaryReader.getString(count, 'utf-8')
-      } else {
-        binaryReader.seek(binaryReader.tell() - 4)
+      binaryReader.seek(offset)
 
-        return binaryReader.getString(count, 'utf-8')
-      }
+      const string =  binaryReader.getString(count, 'utf-8')
+
+      binaryReader.seek(oldPos)
+
+      return string
     case FIELD_TYPES.BYTE:
+      return valueOffset
     case FIELD_TYPES.SHORT:
+      return valueOffset
     case FIELD_TYPES.LONG:
       return valueOffset
     case FIELD_TYPES.RATIONAL:
       binaryReader.seek(startOffset + valueOffset)
 
-      return [binaryReader.getUint32(), binaryReader.getUint32()]
+      const result = [binaryReader.getUint32(), binaryReader.getUint32()]
+
+      binaryReader.seek(oldPos)
+
+      return result
     default:
       return valueOffset
   }
@@ -301,6 +401,7 @@ const getIFDEntryValue = (IFDEntry, startOffset, binaryReader) => {
 
   switch (fieldName) {
     case FIELDS.EXIF_IFD_POINTER:
+    // case FIELDS.INTEROPERABILITY_IFD_POINTER:
     case FIELDS.GPS_INFO_IFD_POINTER:
       return getIFD(
         binaryReader,
@@ -338,22 +439,24 @@ const getIFD = (binaryReader, startOffset, offset) => {
     const valueOffset = binaryReader.getUint32()
 
     const oldPos = binaryReader.tell()
-    const fieldName = TAG_TO_FIELD[tag]
+    const fieldName = TAG_TO_FIELD[tag] ?? FIELDS.UNKNOWN
 
-    const IFDEntry = {
-      fieldName,
-      fieldType,
-      count,
-      value: undefined,
-      tag,
-      valueOffset,
+    if (!TIFF_FIELDS_NOT_ALLOWED_IN_JPEG.includes(fieldName)) {
+      const IFDEntry = {
+        fieldName,
+        fieldType,
+        count,
+        value: undefined,
+        tag,
+        valueOffset,
+      }
+
+      IFDEntry.value = getIFDEntryValue(IFDEntry, startOffset, binaryReader)
+
+      entries.push(IFDEntry)
     }
 
-    IFDEntry.value = getIFDEntryValue(IFDEntry, startOffset, binaryReader)
-
     binaryReader.seek(oldPos)
-
-    entries.push(IFDEntry)
 
     i++
   }
@@ -366,11 +469,9 @@ const getIFD = (binaryReader, startOffset, offset) => {
 }
 
 const isXmp = binaryReader => {
-  let xmp = binaryReader.getString(29)
+  const xmp = binaryReader.getString(29)
 
-  if (xmp === 'http://ns.adobe.com/xap/1.0/\0') {
-    return true
-  }
+  if (xmp === 'http://ns.adobe.com/xap/1.0/\0') return true
 
   binaryReader.seek(binaryReader.tell() - 29)
 
@@ -378,11 +479,9 @@ const isXmp = binaryReader => {
 }
 
 const isICCProfile = binaryReader => {
-  let exif = binaryReader.getString(12)
+  const exif = binaryReader.getString(12)
 
-  if (exif === 'ICC_PROFILE\0') {
-    return true
-  }
+  if (exif === 'ICC_PROFILE\0') return true
 
   binaryReader.seek(binaryReader.tell() - 12)
 
@@ -390,11 +489,9 @@ const isICCProfile = binaryReader => {
 }
 
 const isExif = binaryReader => {
-  let exif = binaryReader.getString(6)
+  const exif = binaryReader.getString(6)
 
-  if (exif === 'Exif\0\0') {
-    return true
-  }
+  if (exif === 'Exif\0\0') return true
 
   binaryReader.seek(binaryReader.tell() - 6)
 
@@ -471,41 +568,44 @@ const getDataDataSet = (recordNumber, dataSetNumber, br, length) => {
   return br.getString(length)
 }
 
-const PROFILE_CLASSES = {
-  0x73636e72: 'scnr',
-  0x6d6e7472: 'mntr',
-  0x70727472: 'prtr',
-  0x6c696e6b: 'link',
-  0x73706163: 'spac',
-  0x61627374: 'abst',
-  0x6e6d636c: 'nmc',
-}
+export class JPEG {
+  constructor(arrayBuffer) {
+    this.buffer = arrayBuffer
 
-const DATA_COLOR_SPACE_SIGNATURES = {
-  0x58595a20: 'XYZ',
-  0x4c616220: 'Lab',
-  0x4c757620: 'Luv',
-  0x59436272: 'YCbr',
-  0x59787920: 'Yxy',
-  0x52474220: 'RGB',
-}
+    this.segments = JPEGParser(arrayBuffer)
 
-const DATA_COLOR_SPACE_SIGNATURES_TYPES = {
-  XYZ: {
-    PCS: 'PCSXYZ',
-    nCIE: 'nCIEXYZ',
-  },
-  Lab: {
-    PCS: 'PCSLAB',
-    nCIE: 'CIELAB',
-  },
-}
+    this.imageWidth
+  }
 
-const PRIMARY_PLATFORMS = {
-  0x4150504c: 'APPL',
-  0x4d534654: 'MSFT',
-  0x53474920: 'SGI',
-  0x53554e57: 'SUNW',
+  get imageWidth() {
+    return this.segments.find(([name]) => name === "APP1")
+      ?.[2]
+      ?.IFDs[0]
+      ?.entries
+      ?.find(({ fieldName }) => fieldName === FIELDS.EXIF_IFD_POINTER)
+      ?.value
+      ?.entries
+      ?.find(({fieldName}) => fieldName === FIELDS.EXIF_IMAGE_WIDTH)
+      ?.value ??
+      this.segments.find(([name]) => name === "SOF0")
+      ?.[1]
+      ?.imageWidth ?? 0
+  }
+
+  get imageHeight() {
+    return this.segments.find(([name]) => name === "APP1")
+      ?.[2]
+      ?.IFDs[0]
+      ?.entries
+      ?.find(({ fieldName }) => fieldName === FIELDS.EXIF_IFD_POINTER)
+      ?.value
+      ?.entries
+      ?.find(({fieldName}) => fieldName === FIELDS.EXIF_IMAGE_HEIGHT)
+      ?.value ??
+      this.segments.find(([name]) => name === "SOF0")
+      ?.[1]
+      ?.imageHeight ?? 0
+  }
 }
 
 export const JPEGParser = arrayBuffer => {
@@ -524,18 +624,18 @@ export const JPEGParser = arrayBuffer => {
       segments.push(segment)
 
       if (isMarkerSegment(name)) {
-        if (isFrameHeader(name)) {
-          const Lf = binaryReader.getUint16()
-          const P = binaryReader.getUint8()
-          const Y = binaryReader.getUint16()
-          const X = binaryReader.getUint16()
-          const Nf = binaryReader.getUint8()
+        if (isStartOfFrameHeader(name)) {
+          const frameHeaderLength = binaryReader.getUint16()
+          const samplePrecision = binaryReader.getUint8()
+          const imageHeight = binaryReader.getUint16()
+          const imageWidth = binaryReader.getUint16()
+          const numberOfComponents = binaryReader.getUint8()
 
-          segment.push(Lf, P, Y, X, Nf)
+          segment.push({ frameHeaderLength, samplePrecision, imageHeight, imageWidth, numberOfComponents })
 
           let i = 0
 
-          while (i < Nf) {
+          while (i < numberOfComponents) {
             const C = binaryReader.getUint8()
             const [H, V] = binaryReader.getUint4()
             const Tq = binaryReader.getUint8()
@@ -634,6 +734,8 @@ export const JPEGParser = arrayBuffer => {
                 const sequenceNumber = br.getUint8()
                 const numberOfChunks = br.getUint8()
 
+                const startHeaderPos = br.tell()
+
                 // Header 128 bytes long
                 const profileSize = br.getUint32()
                 const preferredCMMType = br.getString(4)
@@ -710,6 +812,7 @@ export const JPEGParser = arrayBuffer => {
 
                 // Tag table
                 let tagCount = br.getUint32()
+
                 const tagTable = {
                   tagCount,
                   tags: [],
@@ -719,15 +822,16 @@ export const JPEGParser = arrayBuffer => {
                   const tagSignature = br.getString(4)
                   const tagOffset = br.getUint32()
                   const tagSize = br.getUint32()
+
                   const lastOffset = br.tell()
 
-                  br.seek(tagOffset)
+                  br.seek(startHeaderPos + tagOffset + 29)
 
                   br.skipEmpty()
 
-                  const tagData = br.getString(4)
+                  const tagData = br.getString(tagSize - 29)
 
-                  console.log(tagSignature, tagOffset, tagSize, lastOffset)
+                  console.log(tagSignature, tagOffset, tagSize, lastOffset, tagData, startHeaderPos)
 
                   tagTable.tags.push({ [tagSignature]: tagData })
 
@@ -736,13 +840,19 @@ export const JPEGParser = arrayBuffer => {
                   tagCount--
                 }
 
-                console.log(
-                  'ICC_PROFILE',
+                const iccProfile = {
                   sequenceNumber,
                   numberOfChunks,
                   header,
                   tagTable
+                }
+
+                console.log(
+                  'ICC_PROFILE',
+                  iccProfile
                 )
+
+                segment.push(iccProfile)
               }
             }
 
@@ -803,7 +913,8 @@ export const JPEGParser = arrayBuffer => {
               }
 
               segment.push(Ap)
-              console.log(Ap.map(code => String.fromCharCode(code)).join(''))
+
+              // console.log(Ap.map(code => String.fromCharCode(code)).join(''))
             }
           }
 
@@ -864,6 +975,7 @@ export const JPEGParser = arrayBuffer => {
               segment.push(Lq, Pq, Tq, Q)
 
               break
+            case MARKER_CODES.DRI:
             default:
               console.log(name)
           }
