@@ -1,7 +1,7 @@
 {
-  "name": "jpegparser",
+  "name": "@digitalbranch/jpeg",
   "version": "1.0.0",
-  "description": "JPEG parser for js",
+  "description": "JPEG parser for javascript",
   "main": "src/JPEGParser.js",
   "scripts": {
     "start": "parcel index.html"

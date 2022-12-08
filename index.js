@@ -1,4 +1,4 @@
-import { JPEGParser, JPEG } from './src/JPEGParser'
+import { JPEG } from './src/JPEGParser'
 
 const fileInput = document.getElementById('file')
 
